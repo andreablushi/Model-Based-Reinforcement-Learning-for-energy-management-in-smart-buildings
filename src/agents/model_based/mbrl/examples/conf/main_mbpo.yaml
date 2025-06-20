@@ -1,0 +1,12 @@
+defaults:
+  - algorithm: mbpo
+  - dynamics_model: gaussian_mlp_ensemble
+  - overrides: mbpo_citylearn
+  - _self_
+
+seed: 42
+device: "cuda:0"
+
+log_frequency_agent: 100
+save_video: false
+debug_mode: false

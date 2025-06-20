@@ -1,0 +1,12 @@
+defaults:
+  - algorithm: ???
+  - dynamics_model: ???
+  - overrides: test_citylearn
+  - _self_
+
+seed: 42
+device: "cpu"
+
+log_frequency_agent: ???
+save_video: false
+debug_mode: false
