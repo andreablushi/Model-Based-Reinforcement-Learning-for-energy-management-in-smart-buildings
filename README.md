@@ -8,7 +8,8 @@ This project contains a collection of Jupyter Notebooks and Python modules for t
 ## 📁 Project Structure
 
 src/  
-├── MACURASimulation.ipynb <- Run MACURA-based MBRL training/evaluation  ( as example for others)
+├── MACURASimulation.ipynb <- Run MACURA-based MBRL training/evaluation  ( as example for others) 
+
 ├── CHESCASimulation.ipynb <- Run CHESCA energy environment simulation  
 ├── agents/ <- CHESCA and MBRL algorithms code
 ├── wrappers/ <- CityLearn wrappers  
@@ -30,7 +31,7 @@ from google.colab import drive
 drive.mount('/content/drive')   # Mount your Google Drive
 
 %cd /content/drive/MyDrive/		# Select the directory in which you want to download
-!git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git	# Git Clone
+!git clone https://github.com/andreablushi/Model-Based-Reinforcement-Learning-for-energy-management-in-smart-buildings	# Git Clone
 ```
 ### 🧠 Execute on Colab
 > Those steps must be done everytime you execute in Colab, no matters the case.
