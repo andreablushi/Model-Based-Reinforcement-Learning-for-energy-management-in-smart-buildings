@@ -1,6 +1,6 @@
 
 # 🔬 Model-Based RL + CHESCA Simulation Toolkit
-
+This project was developed as part of the Bachelor’s thesis of Andrea Blushi at the University of Verona (UNIVR), under the supervision of Prof. Alberto Castellini and Prof. Alessandro Farinelli, with support from Lorenzo Bonanni. The repository provides a comprehensive framework for evaluating both model‑free and model‑based deep reinforcement learning algorithms within the CityLearn environment, featuring implementations of state‑of‑the‑art agents, end‑to‑end training and testing pipelines, and scripts to reproduce all experiments presented in the thesis.
 This project contains a collection of Jupyter Notebooks and Python modules for training and evaluating **Model-Based Reinforcement Learning (MBRL)** algorithms such as **MACURA**, **MBPO**, and **M2AC**, and for simulating a real-world energy environment with the **CHESCA** platform (built on CityLearn). This README is made up to explain how to run on Google Colab. Refer to the **pdf** for more theoretical basis.
 
 ---
