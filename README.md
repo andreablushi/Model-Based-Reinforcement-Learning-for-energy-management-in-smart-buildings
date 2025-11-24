@@ -88,16 +88,16 @@ python -m mbrl.examples.main --config-name=launcher_mbpo
 ## ⚙️How to change parameters
 
 > Follow the file path below 
-```PATH: src/agents/model_based/mbrl/example/```
+```PATH: src/agents/model_based/mbrl/examples/conf```
 
 > Here you can find all the `.yaml` configuration files.  
 
 The **launcher file** defines train and test config
 The **main files** define the connection between the various components.
 
--   The `**overrides**` folder contains **environment-specific parameters**.
+-   The `overrides` folder contains **environment-specific parameters**.
     
--   The `**dynamics_model**` folder includes the configuration for the **probabilistic neural networks (PNNs)**.
+-   The `dynamics_model` folder includes the configuration for the **probabilistic neural networks (PNNs)**.
     
--   The `**algorithm**` folder contains parameters for each specific algorithm (e.g., MACURA, MBPO, M2AC).
+-   The `algorithm` folder contains parameters for each specific algorithm (e.g., MACURA, MBPO, M2AC).
     
