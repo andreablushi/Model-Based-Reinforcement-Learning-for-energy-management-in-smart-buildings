@@ -25,6 +25,25 @@ src/
       └── model_based/    # Model-based RL algorithms (MACURA, SAC, M2AC, MBPO)
 ```
 
+## 📊 Experiment Tracking with Weights & Biases (W&B)
+
+This project supports **Weights & Biases (W&B)** for experiment tracking, logging, and visualization.
+
+**What is W&B?**
+Weights & Biases is a platform that helps you track machine learning experiments by logging metrics, hyperparameters, configurations, and results. It provides a web dashboard to compare runs, monitor training progress, and ensure reproducibility.
+
+### 🔑 Create an Account
+
+1. Go to [https://wandb.ai](https://wandb.ai)
+2. Create a free account (or log in if you already have one)
+3. From your terminal, log in to W&B:
+
+```bash
+wandb login
+```
+
+You will be prompted to paste your API key, which you can find in your W&B account settings.
+
 ---
 
 ## 🚀 Running Experiments
