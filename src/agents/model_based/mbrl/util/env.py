@@ -1,6 +1,7 @@
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Tuple, Union, cast
+import json
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import gymnasium as gym
 import gymnasium.wrappers
@@ -10,6 +11,7 @@ import omegaconf
 import torch
 from citylearn.citylearn import CityLearnEnv
 from citylearn.wrappers import NormalizedSpaceWrapper, StableBaselines3Wrapper
+from citylearn.data import DataSet
 from mbrl.util.CityLearnWrappers import CityLearnKPIWrapper, CityLearnWandbWrapper
 from mbrl.rewards.CityLearnReward import SolarPenaltyAndComfortReward
 from mbrl.rewards.FactorizedCityLearnReward import FactorizedSolarPenaltyAndComfortReward
@@ -17,6 +19,132 @@ from mbrl.rewards.FactorizedCityLearnReward import FactorizedSolarPenaltyAndComf
 import mbrl.planning
 import mbrl.types
 
+class CityLearnSchema:
+    def __init__(self, schema: Dict[str, Any] | None=None):
+        self._schema: Dict[str, Any] | None = schema
+
+    @property
+    def schema(self) -> Dict[str, Any]:
+        return self._schema
+    
+    @schema.setter
+    def schema(self, new_schema: Dict[str, Any]):
+        self._schema = new_schema
+
+    def load(self, dataset: str, custom: bool=False):
+        assert self._schema is None, 'Schema has already been loaded.'
+
+        # Get the schema of the dataset
+        self._schema = DataSet().get_schema(dataset)
+
+        if custom:
+            print("="*40)
+            print("CityLearnOmnisafe - Dataset Customization")
+            print("="*40)
+            print(f"Dataset: {dataset}")
+
+            # User's building selection
+            _ = self._select_items(key='buildings')
+            # User's observation selection
+            selected_obs = self._select_items(key='observations')
+            # User's action selection
+            selected_act = self._select_items(key='actions')
+
+            # Sanity check
+            self._check(selected_obs, selected_act)
+        else:
+            # Include Building_1 by default
+            self.set_active(key='buildings', items=['Building_1'])
+
+    def save(self, dir: str, prefix: str='base'):
+        with open(f'{dir}/{prefix}_schema.json', 'w') as f:
+            json.dump(self._schema, f, indent=4)
+
+    def set(self, key: str, value: Dict[str, Any]):
+        self._schema[key] = value
+
+    def set_active(self, key: str, items: List[str]):
+        assert self._schema is not None, 'Schema has not been loaded, yet.'
+        assert key in ['buildings', 'observations', 'actions'], f'Unknown schema key {key}.'
+
+        # Filter CityLearn items
+        flag_key = 'include' if key == 'buildings' else 'active'
+        for it in self._schema[key].keys():
+            self._schema[key][it][flag_key] = (it in items)
+
+    def train_test_split(self, frac: float, mode: str):
+        assert mode in ['train', 'test'], f'Unknown mode {mode}. Must be either `train` or `test`.'
+        assert 0 < frac <= 1, f'Invalid fraction {frac}. Must be in (0,1).'
+
+        # Copy base schema
+        train_schema, test_schema = self._schema.copy(), self._schema.copy()
+
+        # Total simulation days
+        time_steps = self._schema['simulation_end_time_step'] + 1
+        total_days = time_steps // 24
+
+        # Train/test split index
+        train_days = int(total_days * frac)
+        split_idx = train_days * 24
+
+        # Modify train/test schemas
+        train_schema['simulation_end_time_step'] = split_idx - 1
+        if frac < 1:
+            test_schema['simulation_start_time_step'] = split_idx
+
+        return train_schema, test_schema
+
+    def _select_items(self, key: str):
+        assert key in ['buildings', 'observations', 'actions'], f'Unknown schema key {key}.'
+    
+        # Available items
+        if key == 'buildings':
+            pool = list(self._schema[key].keys())
+        else:
+            pool = [item for item in self._schema[key].keys() if self._schema[key][item]['active']]
+
+        print(f"Available {key}:")
+        for idx, item in enumerate(pool):
+            print(f"- {idx+1}. {item}")
+
+        # Item selection
+        user_input = input(f"\nSelect {item} by entering their numbers separated by commas (e.g., 1,3,5): ")
+        selected_indices = [int(i.strip()) - 1 for i in user_input.split(',') if i.strip().isdigit() and 0 < int(i.strip()) <= len(pool)]
+        selected_items = [pool[i] for i in selected_indices]
+
+        print(f"Selected items: {selected_items}\n\n")
+
+        # Modify schema according to user's selection
+        self.set_active(key=key, items=selected_items)
+
+        return selected_items
+    
+    def _check(self, observations: List[str], actions: List[str]):
+        print('Checking observations...')
+        if 'indoor_dry_bulb_temperature' in observations:
+            if 'indoor_dry_bulb_temperature_cooling_set_point':
+                # Remove "redundant" observations
+                observations.remove('indoor_dry_bulb_temperature_cooling_set_point')
+
+                # Activate temperature delta
+                observations.append('indoor_dry_bulb_temperature_cooling_delta')
+                self.set_active(key='observations', items=observations)
+                print(
+                    '[CHECK] Both `indoor_dry_bulb_temperature` and `indoor_dry_bulb_temperature_cooling_set_point` are active.' + 
+                    ' `indoor_dry_bulb_temperature_cooling_delta` has been activated.'
+                )
+
+            if 'indoor_dry_bulb_temperature_heating_set_point' in observations:
+                # Remove "reduntant" observations
+                observations.remove('indoor_dry_bulb_temperature_heating_set_point')
+
+                # Activate temperature delta
+                observations.append('indoor_dry_bulb_temperature_heating_delta')
+                self.set_active(key='observations', items=observations)
+                print(
+                    '[CHECK] Both `indoor_dry_bulb_temperature` and `indoor_dry_bulb_temperature_heating_set_point` are active.' + 
+                    ' `indoor_dry_bulb_temperature_heating_delta` has been activated.'
+                )
 
 
 def _get_term_and_reward_fn(
@@ -84,38 +212,42 @@ def _legacy_make_env(
             term_fn = mbrl.env.termination_fns.humanoid
             reward_fn = None
         elif cfg.overrides.env == "citylearn":
+            schema_name = 'citylearn_challenge_2023_phase_1'
+            schema_obj = CityLearnSchema()
+            schema_obj.load(dataset=schema_name, custom=False)
+            train_schema, test_schema = schema_obj.train_test_split(frac=0.8, mode='train')
             env = CityLearnEnv(
-                "citylearn_challenge_2023_phase_1",
-                central_agent=True
+                schema=train_schema, 
+                central_agent=True,
             )
             reward_fn = SolarPenaltyAndComfortReward(env.schema)
             env.reward_function = reward_fn
 
-            env = NormalizedSpaceWrapper(env)
+            # env = NormalizedSpaceWrapper(env)
             if not test_env:
                 env = CityLearnWandbWrapper(env, online=True, verbose=True)
             else:
+                env = CityLearnEnv(
+                    schema=test_schema, 
+                    central_agent=True,
+                )
+                reward_fn = SolarPenaltyAndComfortReward(env.schema)
+                env.reward_function = reward_fn
                 env = CityLearnKPIWrapper(env)
 
             term_fn = mbrl.env.termination_fns.no_termination
-        # elif cfg.overrides.env == "factorized_citylearn":
-        #     env = CityLearnEnv(
-        #         "citylearn_challenge_2023_phase_2_local_evaluation",
-        #         central_agent=True
-        #     )
-        #     reward_fn = FactorizedSolarPenaltyAndComfortReward(env.schema)
-        #     env.reward_function = reward_fn
-        #     env = NormalizedSpaceWrapper(env)
-        #     env =  StableBaselines3Wrapper(env)
-        #     term_fn = mbrl.env.termination_fns.no_termination
         elif cfg.overrides.env == "test_citylearn":
+            schema_name = 'citylearn_challenge_2023_phase_1'
+            schema_obj = CityLearnSchema()
+            schema_obj.load(dataset=schema_name, custom=False)
+            schema_obj.set_active(key='buildings', items=[f'Building_2'])
+
             env = CityLearnEnv(
-                "citylearn_challenge_2023_phase_2_local_evaluation",
-                central_agent=True
+                schema=schema_obj.schema, 
+                central_agent=True,
             )
             reward_fn = SolarPenaltyAndComfortReward(env.schema)
             env.reward_function = reward_fn
-            env = NormalizedSpaceWrapper(env)
             if not test_env:
                 env = CityLearnWandbWrapper(env, online=True)
             else:

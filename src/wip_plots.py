@@ -251,10 +251,10 @@ def plot_temperature(
 
     plt.tight_layout()
     plt.savefig(f'building_{building_id}_temperature_profile.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()
 
 
-env_name = "citylearn_challenge_2023_phase_2_online_evaluation_3"
+env_name = "citylearn_challenge_2023_phase_1"
 eval_env = CityLearnEnv(env_name, central_agent=True)
 rf = SolarPenaltyAndComfortReward(eval_env.schema)
 eval_env.reward_function = rf
