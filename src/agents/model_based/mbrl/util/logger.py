@@ -207,6 +207,8 @@ class Logger(object):
         return group_name, key
 
     def log(self, group_and_key: str, value: LogTypes, _step: int):
+        wandb.log({group_and_key: value})
+
         group_name, key = self._split_group_and_key(group_and_key)
 
         if isinstance(value, torch.Tensor):

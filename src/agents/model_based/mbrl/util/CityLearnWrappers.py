@@ -78,7 +78,7 @@ class CityLearnKPIWrapper(StableBaselines3Wrapper):
             kpis = self.env.unwrapped.evaluate(
                 control_condition=EvaluationCondition.WITH_STORAGE_AND_PARTIAL_LOAD_AND_PV,
                 baseline_condition=EvaluationCondition.WITHOUT_STORAGE_AND_PARTIAL_LOAD_BUT_WITH_PV,
-                comfort_band=1.0,
+                comfort_band=2.0,
             )
 
             # names of KPIs to retrieve from evaluate function
