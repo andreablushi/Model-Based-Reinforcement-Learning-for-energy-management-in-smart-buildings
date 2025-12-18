@@ -85,36 +85,36 @@ def _legacy_make_env(
             reward_fn = None
         elif cfg.overrides.env == "citylearn":
             env = CityLearnEnv(
-                "citylearn_challenge_2023_phase_2_local_evaluation",
+                "citylearn_challenge_2023_phase_1",
                 central_agent=True
             )
-            env.reward_function = SolarPenaltyAndComfortReward(env.schema)
             reward_fn = SolarPenaltyAndComfortReward(env.schema)
+            env.reward_function = reward_fn
 
             env = NormalizedSpaceWrapper(env)
             if not test_env:
-                env = CityLearnWandbWrapper(env, online=True)
+                env = CityLearnWandbWrapper(env, online=True, verbose=True)
             else:
                 env = CityLearnKPIWrapper(env)
 
             term_fn = mbrl.env.termination_fns.no_termination
-        elif cfg.overrides.env == "factorized_citylearn":
+        # elif cfg.overrides.env == "factorized_citylearn":
+        #     env = CityLearnEnv(
+        #         "citylearn_challenge_2023_phase_2_local_evaluation",
+        #         central_agent=True
+        #     )
+        #     reward_fn = FactorizedSolarPenaltyAndComfortReward(env.schema)
+        #     env.reward_function = reward_fn
+        #     env = NormalizedSpaceWrapper(env)
+        #     env =  StableBaselines3Wrapper(env)
+        #     term_fn = mbrl.env.termination_fns.no_termination
+        elif cfg.overrides.env == "test_citylearn":
             env = CityLearnEnv(
                 "citylearn_challenge_2023_phase_2_local_evaluation",
                 central_agent=True
             )
-            env.reward_function = FactorizedSolarPenaltyAndComfortReward(env.schema)
-            reward_fn = FactorizedSolarPenaltyAndComfortReward(env.schema)
-            env = NormalizedSpaceWrapper(env)
-            env =  StableBaselines3Wrapper(env)
-            term_fn = mbrl.env.termination_fns.no_termination
-        elif cfg.overrides.env == "test_citylearn":
-            env = CityLearnEnv(
-                "citylearn_challenge_2023_phase_2_online_evaluation_3",
-                central_agent=True
-            )
-            env.reward_function = SolarPenaltyAndComfortReward(env.schema)
             reward_fn = SolarPenaltyAndComfortReward(env.schema)
+            env.reward_function = reward_fn
             env = NormalizedSpaceWrapper(env)
             if not test_env:
                 env = CityLearnWandbWrapper(env, online=True)

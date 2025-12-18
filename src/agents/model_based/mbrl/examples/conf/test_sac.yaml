@@ -6,7 +6,7 @@ defaults:
 
 seed: 42
 # can use cuda:0 here if GPU available, else cpu
-device: "cuda:0"
+device: "cpu"
 
 log_frequency_agent: 100
 save_video: false
