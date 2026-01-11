@@ -4,6 +4,7 @@ import pandas as pd
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
 import math
 
 from citylearn.citylearn import CityLearnEnv, EvaluationCondition
@@ -141,25 +142,6 @@ def plot_district_kpis(envs: dict[str, CityLearnEnv]) -> pd.DataFrame:
 
     return kpis
 
-def plot_simulation_summary(envs: dict[str, CityLearnEnv], base_path: str, algorithm_name: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Plots KPIs for different control agents.
-
-    Parameters
-    ----------
-    envs: dict[str, CityLearnEnv]
-        Mapping of user-defined control agent names to environments
-        the agents have been used to control.
-    """
-
-    building_kpis = plot_building_kpis(envs)
-    plt.tight_layout()
-    plt.savefig(f'{base_path}/{algorithm_name}_building_kpis.png')
-
-    district_kpis = plot_district_kpis(envs)
-    plt.tight_layout()
-    plt.savefig(f'{base_path}/{algorithm_name}_district_kpis.png')
-    return building_kpis, district_kpis
-
 def evaluate_citylearn_challenge(env: CityLearnEnv, weights: dict[str, float]) -> dict[str, float]:
     evaluation = {
             'carbon_emissions_total': {'display_name': 'Carbon emissions', 'weight': 0.10},
@@ -174,7 +156,7 @@ def evaluate_citylearn_challenge(env: CityLearnEnv, weights: dict[str, float]) -
     data = env.unwrapped.evaluate(
             control_condition=EvaluationCondition.WITH_STORAGE_AND_PARTIAL_LOAD_AND_PV,
             baseline_condition=EvaluationCondition.WITHOUT_STORAGE_AND_PARTIAL_LOAD_BUT_WITH_PV,
-            comfort_band=1.0,
+            comfort_band=2.0,
     )
 
     data = data[data['level']=='district'].set_index('cost_function').to_dict('index')
@@ -213,15 +195,15 @@ def evaluate_citylearn_challenge(env: CityLearnEnv, weights: dict[str, float]) -
         'weight': weights['resilience'],
         'value': score_resilience
     }
-
+    weighted_resilience = weights['resilience'] * score_resilience
     evaluation['average_score'] = {
         'display_name': 'Score',
         'weight': None,
         'value': (
-            weights['comfort']*score_comfort +
-            weights['emissions']*score_emissions +
-            weights['grid_control']*score_grid_control +
-            weights['resilience']*score_resilience
+            weights['comfort'] * score_comfort +
+            weights['emissions'] * score_emissions +
+            weights['grid_control'] * score_grid_control +
+            (weighted_resilience if not np.isnan(weighted_resilience) else 0.0)
         )
     }
 

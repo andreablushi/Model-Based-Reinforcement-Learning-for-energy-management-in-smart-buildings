@@ -10,14 +10,15 @@ import hydra
 import numpy as np
 import omegaconf
 import pandas as pd
-from mbrl.util.kpi_utils import plot_simulation_summary
-from mbrl.util.plot_utils import make_plots
+from mbrl.util.kpi_utils import get_kpis
 from mbrl.planning.sac_wrapper import SACAgent
 from mbrl.third_party.pytorch_sac import VideoRecorder
 import mbrl.models
 import mbrl.planning
-import mbrl.types
 import torch
+from citylearn.citylearn import CityLearnEnv
+from citylearn.agents.rbc import OptimizedRBC
+
 from .replay_buffer import (
     BootstrapIterator,
     ReplayBuffer,
@@ -25,27 +26,174 @@ from .replay_buffer import (
     SequenceTransitionSampler,
     TransitionIterator,
 )
-import mbrl.util.math
-from mbrl.util.kpi_utils import evaluate_citylearn_challenge, plot_simulation_summary
+from mbrl.util.kpi_utils import evaluate_citylearn_challenge
 
-phase_1_weights = {
-    'comfort': 0.3,
-    'emissions': 0.1,
-    'grid_control': 0.6,
-    'resilience': 0.0
-}
-phase_2_weights = {
-    'comfort': 0.3,
-    'emissions': 0.1,
-    'grid_control': 0.3,
-    'resilience': 0.3
-}
-custom_weights = {
-    'comfort': 0.3,
-    'emissions': 0.4,
-    'grid_control': 0.3,
-    'resilience': 0.0
-}
+
+class ComfortRBC(OptimizedRBC):
+    """
+    Rule-based Control designed to overwrite controls scheduled by :py:class:`citylearn.agents.rbc.OptimizedRBC` 
+    in order to tackle temperature discomfort.
+
+    Parameters
+    ----------
+    env: CityLearnEnv
+        CityLearn environment to perform control on.
+    band: float
+        Comfort band to try to satisfy. 
+
+    TODO
+    ---------- 
+    Understand how to manage storages and devices with respect to them
+    """
+    def __init__(self, env: CityLearnEnv, band: float=None, **kwargs):        
+        # Init OptimizedRBC
+        super().__init__(env, **kwargs)
+
+        # Sanity check
+        self._check(env)
+
+        # Comfort band (+/-) to satisfy
+        self.comfort_band = band if band is not None else env.buildings[0].comfort_band[0] 
+
+    def predict(self, observations: List[List[float]], deterministic: bool=None) -> List[List[float]]:        
+        # Predict actions based on hour scheduling
+        scheduled_acions = super().predict(observations, deterministic)
+
+        actions = []
+        for i, o in enumerate(observations):
+            action = scheduled_acions[i]
+
+            # Available spaces
+            available_obs = self.observation_names[i]
+            available_act = self.action_names[i]
+
+            # Temperatures
+            if 'indoor_dry_bulb_temperature' in available_obs:
+                indoor_temp = o[available_obs.index('indoor_dry_bulb_temperature')]
+            else:
+                indoor_temp = None
+
+            if 'outdoor_dry_bulb_temperature' in available_obs:
+                outdoor_temp = o[available_obs.index('outdoor_dry_bulb_temperature')]
+            else:
+                outdoor_temp = None
+
+            if 'indoor_dry_bulb_temperature_cooling_set_point' in available_obs:
+                cooling_setpoint = o[available_obs.index('indoor_dry_bulb_temperature_cooling_set_point')]
+            else:
+                cooling_setpoint = None
+
+            if 'indoor_dry_bulb_temperature_cooling_delta' in available_obs:
+                cooling_delta = o[available_obs.index('indoor_dry_bulb_temperature_cooling_delta')]
+            else:
+                cooling_delta = None
+
+            if 'indoor_dry_bulb_temperature_heating_set_point' in available_obs:
+                heating_setpoint = o[available_obs.index('indoor_dry_bulb_temperature_heating_set_point')]
+            else:
+                heating_setpoint = None
+
+            if 'indoor_dry_bulb_temperature_heating_delta' in available_obs:
+                heating_delta = o[available_obs.index('indoor_dry_bulb_temperature_heating_delta')]
+            else:
+                heating_delta = None
+
+            # Stoarges SoC
+            if 'electrical_storage_soc' in available_obs:
+                electrical_soc = o[available_obs.index('electrical_storage_soc')]
+            else:
+                electrical_soc = -1
+
+            if 'cooling_storage_soc' in available_obs:
+                cooling_soc = o[available_obs.index('cooling_storage_soc')]
+            else:
+                cooling_soc = -1
+
+            if 'heating_storage_soc' in available_obs:
+                heating_soc = o[available_obs.index('heating_storage_soc')]
+            else:
+                heating_soc = -1
+
+            # Manage cooling
+            if 'cooling_device' in available_act:
+                # Action indexes
+                device_idx = available_act.index('cooling_device')
+                if 'electircal_storage' in available_act:
+                    ess_idx = available_act.index('electrical_storage')
+                else:
+                    ess_idx = None
+
+                # Temperature difference
+                hot_delta = cooling_delta if cooling_delta is not None else indoor_temp - cooling_setpoint
+                if hot_delta > 0:
+                    if hot_delta > self.comfort_band: # Too hot -> supply the cooling device                        
+                        action[device_idx] = 0.8
+                        if electrical_soc > 0.1 and ess_idx is not None:
+                            action[ess_idx] =  min(action[ess_idx], -electrical_soc/2)
+                    else:
+                        action[device_idx] = 0.2 # Hot within the band
+                        if electrical_soc > 0.1 and ess_idx is not None:
+                            action[ess_idx] =  min(action[ess_idx], -electrical_soc/3)
+                else:
+                    if indoor_temp is not None and outdoor_temp is not None:
+                        temp_delta = outdoor_temp - indoor_temp # Outdoor temperature affects indoor temperature                       
+                        action[device_idx] = 0.3 if temp_delta > 0 else 0.0
+
+                    else:
+                        action[device_idx] = 0.0
+                        if ess_idx is not None: 
+                            action[ess_idx] = action[ess_idx]/2 if action[ess_idx] < 0 else action[ess_idx]
+
+            # Manage heating
+            if 'heating_device' in available_act:
+                # Action indexes
+                device_idx = available_act.index('heating_device')
+                if 'electrical_storage' in available_act:
+                    ess_idx = available_act.index('electrical_storage')
+                else:
+                    ess_idx = None
+
+                # Temperature difference
+                cold_delta = heating_delta if heating_delta is not None else indoor_temp - heating_setpoint
+                if cold_delta < 0:
+                    if cold_delta < -self.comfort_band:
+                        action[device_idx] = 0.8 # Too cold -> supply the heating device
+                        if electrical_soc > 0.1 and ess_idx is not None:
+                            action[ess_idx] =  min(action[ess_idx], -electrical_soc/2)
+                    else:
+                        action[device_idx] = 0.2 # Cold within the band
+                        if electrical_soc > 0.1 and ess_idx is not None:
+                            action[ess_idx] =  min(action[ess_idx], -electrical_soc/3)
+                else:
+                    if indoor_temp is not None and outdoor_temp is not None:
+                        temp_delta = outdoor_temp - indoor_temp # Outdoor temperature affects indoor temperature
+                        action[device_idx] = 0.3 if temp_delta < 0 else 0.0
+                    else:
+                        action[device_idx] = 0.0
+                        if ess_idx is not None: 
+                            action[ess_idx] = action[ess_idx]/2 if action[ess_idx] < 0 else action[ess_idx]
+
+            actions.append(action)
+
+        # Return overwritten actions
+        self.actions = actions
+        return actions
+    
+    def _check(self, env: CityLearnEnv):
+        if 'indoor_dry_bulb_temperature' in env.observation_names[0]:
+            if 'indoor_dry_bulb_temperature_cooling_set_point' not in env.observation_names[0] \
+                and 'indoor_dry_bulb_temperature_heating_set_point' not in env.observation_names[0] \
+                and 'indoor_dry_bulb_temperature_cooling_delta' not in env.observation_names[0] \
+                and 'indoor_dry_bulb_temperature_heating_delta' not in env.observation_names[0]:
+                raise RuntimeError(
+                    '`indoor_dry_bulb_temperature` is available, but no `indoor_dry_bulb_temperature_*_set_point` ' +
+                    'or  `indoor_dry_bulb_temperature_*_delta` is available.'
+                )
+        else:
+            if 'indoor_dry_bulb_temperature_cooling_delta' not in env.observation_names[0] \
+                and 'indoor_dry_bulb_temperature_heating_delta' not in env.observation_names[0]:
+                raise RuntimeError('No `indoor_dry_bulb_temperature_*_delta` is available.')
+
 
 
 def calc_rest_ensemble_mean_std_leave_out_model_indices(means_of_all_ensembles: torch.Tensor,
@@ -159,73 +307,74 @@ def evaluate(
 
     return avg_episode_reward / num_episodes, None
 
-def save_episode_data(env, cooling_actions, battery_actions, dhw_actions, episode, algorithm_name):
-    workdir = os.getcwd()
-    make_plots(env, cooling_actions=cooling_actions, battery_actions=battery_actions, dhw_actions=dhw_actions, output_dir=workdir, episode=episode)
-    make_plots(env, cooling_actions=cooling_actions, battery_actions=battery_actions, dhw_actions=dhw_actions, output_dir=workdir, episode=episode, limit=24*10)  # First 10 days
-    building_kpi, district_kpi = plot_simulation_summary({algorithm_name: env}, workdir, algorithm_name)
-    score = evaluate_citylearn_challenge(
-        env,
-        phase_1_weights
+def final_evaluate(env, agent_type: str, agent, seed: int=None):
+
+    # Agent
+    if agent_type == 'comfort_rbc':
+        agent = ComfortRBC(env)
+    elif agent_type == 'rl':
+        agent = agent
+    else:
+        raise RuntimeError(f'Unknown agent type {agent_type}. Must be either `rbc` or `rl`.')
+    
+    # Episodic return
+    results = {}
+    ep_reward = 0.0
+
+    # Step through the environment
+    obs, _ = env.reset(seed=seed)
+    while not env.terminated:
+        if agent_type == 'rl':
+            action = agent.act(obs)
+        else:
+            action = agent.predict(obs)        
+        obs, reward, _, _, _ = env.step(action)
+        ep_reward += reward[0]
+
+    # Get KPIs
+    kpis = get_kpis(env=env)
+
+    # Console log
+    print(
+        f"{'*'*30}\n CONTROL RESULTS ({agent_type}{f' | seed={seed}' if seed is not None else ''})" +
+        f'\n- Reward: {ep_reward}'
     )
 
-    pd.DataFrame(score).to_csv(os.path.join(workdir, f"{algorithm_name}_test_score.csv"))
-    building_kpi.to_csv(os.path.join(workdir, f"episode_{episode}",f"{algorithm_name}_building_kpis.csv"))
-    district_kpi.to_csv(os.path.join(workdir, f"episode_{episode}",f"{algorithm_name}_district_kpis.csv"))
+    for kpi, value in kpis.items():
+        print(f'- {kpi}: {value:.2f}')
 
-def final_evaluate(
-        env: gym.Env,
-        agent: SACAgent,
-        num_episodes: int,
-        algorithm_name: str
-) -> Tuple[float, Any]:
-    """We want to evaluate the agent.
-    Uses agent to act in environemnt. Calculates the mean reward over the episodes.
+    print(f"{'*'*30}")
 
-    Args:
-        env (gym.Env): The environment of the evaluations
-        num_episodes (int): Number of episodes to evaluate the agent
-        agent (SACAgent): Agent to evaluate
+    # Populate results dict
+    results['kpis'] = kpis
+    results['env_h'] = {
+        'time_steps': env.time_steps,
+        'temperature': {
+            'indoor_temperature': env.buildings[0].indoor_dry_bulb_temperature,
+            'indoor_temperature_set_point': env.buildings[0].indoor_dry_bulb_temperature_cooling_set_point,
+            'outdoor_temperature': env.buildings[0].weather.outdoor_dry_bulb_temperature ,
+            'comfort_band': env.buildings[0].comfort_band
+        },
+        'battery': {
+            'soc': env.buildings[0].electrical_storage.soc[:-1],
+            'discharge': env.buildings[0].electrical_storage.energy_balance[:-1],
+            'consumption': env.buildings[0].electrical_storage.electricity_consumption[:-1]
+        },
+        'dhw': {
+            'soc': env.buildings[0].dhw_storage.soc[:-1],
+            'demand': env.buildings[0].dhw_demand[:-1],
+            'consumption': env.buildings[0].dhw_electricity_consumption[:-1]
+        },
+        'cooling_device': {
+            'consumption': env.buildings[0].cooling_device.electricity_consumption[:-1]
+        },
+        'net_electricity_consumption': env.buildings[0].net_electricity_consumption[:-1],
+        'solar_generation': env.buildings[0].solar_generation[:-1],
+        'non_shiftable_load': env.buildings[0].non_shiftable_load[:-1],
+        'electricity_pricing': env.buildings[0].pricing.electricity_pricing[:-1],
+    }
 
-    Returns:
-        (float): The average reward of the num_episode episodes
-    """
-    avg_episode_reward = 0
-    infos = []
-
-    # Get action indices
-    idx_battery_action = np.where(np.array(env.unwrapped.buildings[0].active_actions) == "electrical_storage")[0][0]
-    idx_cooling_action = np.where(np.array(env.unwrapped.buildings[0].active_actions) == "cooling_device")[0][0]
-    idx_dhw_action = np.where(np.array(env.unwrapped.buildings[0].active_actions) == "dhw_storage")[0][0]
-
-    for episode in range(num_episodes):
-        obs, _ = env.reset(seed=episode)
-        # Initialize action lists
-        battery_actions = [[0.0] for _ in range(len(env.unwrapped.buildings))]
-        cooling_actions = [[0.0] for _ in range(len(env.unwrapped.buildings))]
-        dhw_actions = [[0.0] for _ in range(len(env.unwrapped.buildings))]
-
-        terminated = truncated = False
-        episode_reward = 0
-        while not terminated and not truncated:
-            action = agent.act(obs)
-            obs, reward, terminated, truncated, info = env.step(action)
-            episode_reward += float(reward)
-            if info:
-                infos.append(info)
-
-            # Record actions for each building
-            for i in range(len(env.unwrapped.buildings)):
-                battery_actions[i].append(action[3*i + idx_battery_action])
-                cooling_actions[i].append(action[3*i + idx_cooling_action])
-                dhw_actions[i].append(action[3*i + idx_dhw_action])
-
-        print(f"Episode {episode + 1} finished.")
-        avg_episode_reward += episode_reward
-        save_episode_data(env, cooling_actions, battery_actions, dhw_actions, episode, algorithm_name)
-        
-
-    return avg_episode_reward / num_episodes, infos
+    return results, ep_reward
 
 def evaluate_for_building(
         env: gym.Env,

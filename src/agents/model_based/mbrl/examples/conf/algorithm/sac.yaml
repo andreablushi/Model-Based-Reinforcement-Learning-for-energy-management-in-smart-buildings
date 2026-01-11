@@ -8,7 +8,7 @@ learned_rewards: true
 initial_exploration_steps: 719
 random_initial_explore: false
 
-num_eval_episodes: 5
+num_eval_episodes: 1
 eval_freq: 1
 
 #Periodic network reset of SAC Agent

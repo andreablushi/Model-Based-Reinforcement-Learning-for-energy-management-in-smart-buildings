@@ -1,68 +1,65 @@
 import os
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 import numpy as np
 
 
 def plot_energy(
-    time,
-    cooling_device_consumption,
-    dhw_device_consumption,
-    non_shiftable_load,
-    battery_charge,
-    pv_generation,
-    battery_action,
-    battery_soc,
-    net_load,
-    battery_power_capacity=None,
-    index=0,
-    output_dir=".",
-    episode=0
+    res,
+    suffix=''
 ):
     """
-    Visualizes the building energy flows and battery behavior over time.
-
-    This function produces a four-panel plot showing:
-    1. Building electricity consumption components (stacked area plot)
-    2. Building demand, PV generation, and resulting net load
-    3. Battery control signal or real power (depending on scaling)
-    4. Battery state of charge (SoC)
-
-    The color scheme is colorblind-friendly and legends are positioned on the right.
-    A note is also included to explain the meaning of positive/negative net load.
-
+    Generate and save a comprehensive energy management visualization with four subplots.
+    This function creates a detailed energy profile analysis plot showing building consumption
+    components, demand vs. generation, battery control signals, and state of charge over time.
     Parameters
     ----------
-    time : array-like
-        Time steps or timestamps corresponding to simulation periods.
-    cooling_device_consumption : array-like
-        Electricity consumption of the cooling device [kW].
-    dhw_device_consumption : array-like
-        Electricity consumption for domestic hot water [kW].
-    non_shiftable_load : array-like
-        Electricity demand from non-controllable devices [kW].
-    battery_charge : array-like
-        Battery charging power [kW]; positive for charging.
-    pv_generation : array-like
-        PV electricity generation [kW]; positive values represent generation.
-    battery_action : array-like
-        Normalized battery control signal in [-1, 1].
-    battery_soc : array-like
-        Battery state of charge (SoC) [%].
-    net_load : array-like
-        Net building load [kW], where positive means importing from the grid,
-        and negative means exporting to the grid.
-    battery_power_capacity : float, optional
-        Maximum charge/discharge power of the battery [kW].
-        If provided, the action will be scaled by this value.
-    index : int, optional
-        Building index or identifier for labeling purposes.
-
+    res : dict
+        A nested dictionary containing environment and device data with the following structure:
+        - res['env_h']['cooling_device']['consumption'] : array-like
+            Cooling device power consumption [kW]
+        - res['env_h']['dhw']['consumption'] : array-like
+            Domestic hot water device power consumption [kW]
+        - res['env_h']['non_shiftable_load'] : array-like
+            Non-shiftable building load [kW]
+        - res['env_h']['battery']['consumption'] : array-like
+            Battery charging power [kW]
+        - res['env_h']['solar_generation'] : array-like
+            Photovoltaic generation [kW]
+        - res['env_h']['battery']['discharge'] : array-like
+            Battery discharge/charge control signal [kW/h]
+        - res['env_h']['battery']['soc'] : array-like
+            Battery state of charge [%]
+        - res['env_h']['net_electricity_consumption'] : array-like
+            Net electricity consumption from grid [kW]
+    suffix : str, optional
+        Suffix appended to the output filename (default is empty string '')
     Returns
     -------
     None
-        The function saves a PNG file of the figure in the current directory.
+        The function saves the generated plot to disk as 'energy_profile_{suffix}.png'
+    Notes
+    -----
+    The function generates four stacked/line plots:
+    1. Building consumption components (stacked area) with total demand overlay
+    2. Building demand, PV generation, and net load comparison
+    3. Battery (dis)charge control signal
+    4. Battery state of charge over time
+    The plot includes an explanatory annotation clarifying net load interpretation
+    (positive = grid import, negative = grid export).
     """
+    print("*"*50+'\n')
+    cooling_device_consumption=res['env_h']['cooling_device']['consumption']
+    dhw_device_consumption=res['env_h']['dhw']['consumption']
+    non_shiftable_load=res['env_h']['non_shiftable_load']
+    battery_charge=res['env_h']['battery']['consumption']
+    pv_generation=res['env_h']['solar_generation']
+    battery_action=res['env_h']['battery']['discharge']
+    battery_soc=res['env_h']['battery']['soc']
+    net_load=res['env_h']['net_electricity_consumption']
+
+    time = range(len(cooling_device_consumption))
 
     sns.set_style("whitegrid")
     sns.set_context("talk")
@@ -70,9 +67,6 @@ def plot_energy(
 
     # --- Prepare data ---
     pv_generation = -1 * pv_generation  # Flip sign for plotting
-    pv_generation = pv_generation[:len(time)]
-    battery_soc = battery_soc[:len(time)]
-    dhw_device_consumption = dhw_device_consumption[:len(time)]
 
     # --- Derived quantities ---
     building_demand = (
@@ -82,12 +76,8 @@ def plot_energy(
         + battery_charge
     )
 
-    if battery_power_capacity is not None:
-        battery_power = battery_action * battery_power_capacity
-        label_action = "Battery Power [kW]"
-    else:
-        battery_power = battery_action
-        label_action = "Battery Action [-1, 1]"
+    battery_power = battery_action
+    label_action = "(Dis)Charge [kW/h]"
 
     # --- Figure setup ---
     fig, axs = plt.subplots(4, 1, figsize=(15, 12), sharex=True)
@@ -158,55 +148,94 @@ def plot_energy(
     )
 
     plt.tight_layout()  # leave extra space on right
-    os.makedirs(f'{output_dir}/episode_{episode}', exist_ok=True)
+    path = os.path.join(os.getcwd(), f'energy_profile_{suffix}.png')
     plt.savefig(
-        f'{output_dir}/episode_{episode}/building_{index}_energy_profile.png',
+        path,
         dpi=300,
         bbox_inches='tight'
     )
     plt.close()
 
+def compare_kpis(res_1, res_2, algo_names=[]):
+    sns.set_style("whitegrid")
+    sns.set_context("talk")
+    palette = sns.color_palette("colorblind", 5)
+
+    kpis_1 = res_1['kpis']
+    kpis_2 = res_2['kpis']
+
+    # Create a DataFrame for the KPIs
+    kpi_names = list(kpis_1.keys())
+    values_1 = [kpis_1[kpi] for kpi in kpi_names]
+    values_2 = [kpis_2[kpi] for kpi in kpi_names]
+
+    kpi_df = pd.DataFrame({
+        'KPI': kpi_names,
+        'Res 1': values_1,
+        'Res 2': values_2
+    })
+
+    # Set up the horizontal bar plot
+    plt.figure(figsize=(12, 6))
+    bar_width = 0.35
+    index = np.arange(len(kpi_names))
+
+    # Create horizontal bars for both results
+    bar1 = plt.barh(index, kpi_df['Res 1'], bar_width, label=algo_names[0], color=palette[0])
+    bar2 = plt.barh(index + bar_width, kpi_df['Res 2'], bar_width, label=algo_names[1], color=palette[1])
+
+    # Add labels and title
+    plt.ylabel('KPIs')
+    plt.xlabel('Values')
+    plt.title(f'Comparison of KPIs between {algo_names[0]} and {algo_names[1]}')
+    plt.yticks(index + bar_width / 2, kpi_names)
+    plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
+
+    plt.tight_layout()
+    path = os.path.join(os.getcwd(), 'kpi_comparison.png')
+    plt.savefig(path, dpi=300, bbox_inches='tight')
 
 
-def plot_temperature(
-    time,
-    indoor_temps,
-    outdoor_temps,
-    setpoints,
-    cooling_action,
-    building_id,
-    cooling_power_capacity=None,
-    output_dir=".",
-    episode=0
-):
+def plot_temperature(results, suffix=''):
     """
-    Plots indoor/outdoor temperatures, setpoints, and cooling device control signal in two subfigures.
-
-    The first subplot shows temperature dynamics (indoor, outdoor, setpoint),
-    while the second shows the cooling control signal or power, depending on scaling.
-
+    Plot temperature profiles including indoor temperature, outdoor temperature, 
+    and comfort band visualization.
+    This function creates a comprehensive temperature analysis plot showing:
+    - Indoor temperature over time
+    - Outdoor temperature over time
+    - Comfort band (setpoint ± tolerance range)
     Parameters
     ----------
-    time : array-like
-        Time steps.
-    indoor_temps : array-like
-        Indoor air temperature [°C].
-    outdoor_temps : array-like
-        Outdoor temperature [°C].
-    setpoints : array-like
-        Setpoint temperature [°C].
-    cooling_action : array-like
-        Normalized cooling control signal [-1, 1] or cooling power [kW].
-    building_id : int
-        Building index or identifier for labeling purposes.
-    cooling_power_capacity : float, optional
-        Maximum cooling power [kW]. If provided, scales the cooling action.
-
+    results : dict
+        Dictionary containing simulation results with nested structure:
+        results['env_h']['temperature'] should contain:
+        - 'indoor_temperature' : array-like
+            Indoor temperature values
+        - 'indoor_temperature_set_point' : array-like
+            Target setpoint temperature values
+        - 'outdoor_temperature' : array-like
+            Outdoor temperature values
+        - 'comfort_band' : float
+            Temperature tolerance band around setpoint (±value)
+    suffix : str, optional
+        Suffix to append to the output filename (default: '')
     Returns
     -------
     None
-        The function saves a PNG file of the figure in the current directory.
+        Saves the plot as 'temperature_profile_{suffix}.png'
+    Notes
+    -----
+    - Uses seaborn styling with "whitegrid" style and "talk" context
+    - Uses colorblind-friendly palette
+    - Saves output at 300 dpi with tight bounding box
+    - Figure size: 30x10 inches
     """
+
+    temp_1 = results['env_h']['temperature']
+    indoor_temps = temp_1['indoor_temperature']
+    indoor_setpoints = temp_1['indoor_temperature_set_point']
+    outdoor_temps = temp_1['outdoor_temperature']
+    comfort_band = temp_1['comfort_band']
 
     sns.set_style("whitegrid")
     sns.set_context("talk")
@@ -214,115 +243,29 @@ def plot_temperature(
 
     # Ensure arrays match in length
     n = len(indoor_temps)
-    time = time[:n]
-    outdoor_temps = outdoor_temps[:n]
-    setpoints = setpoints[:n]
-    cooling_action = cooling_action[:n]
-
-    # Optional scaling
-    if cooling_power_capacity is not None:
-        cooling_power = cooling_action * cooling_power_capacity
-        label_action = "Cooling Power [kW]"
-    else:
-        cooling_power = cooling_action
-        label_action = "Cooling Action [-1, 1]"
 
     # --- Create figure and subplots ---
-    fig, axs = plt.subplots(2, 1, figsize=(15, 8), sharex=True)
-    plt.subplots_adjust(hspace=0.3, right=0.85)
-
+    fig, axs = plt.subplots(1, 1, figsize=(30, 10))
     # 0️⃣ Temperature profiles
-    axs[0].plot(time, indoor_temps, label='Indoor Temperature', color=palette[0], lw=2)
-    axs[0].plot(time, outdoor_temps, label='Outdoor Temperature', color=palette[1], lw=2)
-    axs[0].plot(time, setpoints, label='Setpoint Temperature', color=palette[2], linestyle='--', lw=2)
-    axs[0].set_ylabel('Temperature [°C]')
-    axs[0].set_title(f'Building {building_id} - Temperature Profiles')
-    axs[0].legend(
+    axs.plot(range(n), indoor_temps, label='Indoor Temperature', color=palette[0], lw=2)
+    # Set point comfort band
+    axs.fill_between(
+        range(n),
+        indoor_setpoints + comfort_band,
+        indoor_setpoints - comfort_band,
+        color='g',
+        alpha=0.1,
+        label='Comfort band',
+    )
+    axs.plot(range(n), outdoor_temps, label='Outdoor Temperature', color=palette[1], lw=2)
+    axs.set_ylabel('Temperature [°C]')
+    axs.set_title('Temperature Profiles')
+    axs.legend(
         loc='upper left',
         bbox_to_anchor=(1.02, 1.0),
         frameon=False
     )
 
-    # 1️⃣ Cooling Control Signal
-    axs[1].axhline(0, color='black', lw=0.8, linestyle='--')
-    sns.lineplot(x=time, y=cooling_power, ax=axs[1], color=palette[3], lw=1.8)
-    axs[1].set_ylabel(label_action)
-    axs[1].set_xlabel('Time')
-    axs[1].set_title('Cooling Device Control Signal')
-
     plt.tight_layout()
-    os.makedirs(f'{output_dir}/episode_{episode}', exist_ok=True)
-    plt.savefig(f'{output_dir}/episode_{episode}/building_{building_id}_temperature_profile.png', dpi=300, bbox_inches='tight')
-    plt.show()
-
-
-def make_plots(eval_env, cooling_actions, battery_actions, dhw_actions, output_dir=".", episode=0, limit=None):
-     if limit is not None:
-        output_dir = os.path.join(output_dir, f"first_{limit}_steps")
-
-
-     for i in range(len(eval_env.unwrapped.buildings)):
-        indoor_temps = eval_env.unwrapped.buildings[i].indoor_dry_bulb_temperature
-        outdoor_temps = eval_env.unwrapped.buildings[i].weather.outdoor_dry_bulb_temperature
-        setpoints = eval_env.unwrapped.buildings[i].indoor_dry_bulb_temperature_cooling_set_point
-        solar_generation = eval_env.unwrapped.buildings[i]._Building__solar_generation
-        battery_consumption = eval_env.unwrapped.buildings[i].electrical_storage_electricity_consumption # Positive when charging, negative when discharging
-        cooling_device_consumption = eval_env.unwrapped.buildings[i].cooling_electricity_consumption 
-        dhw_device_consumption = eval_env.unwrapped.buildings[i].dhw_device._ElectricDevice__electricity_consumption
-        non_shiftable_load = eval_env.unwrapped.buildings[i].non_shiftable_load
-        net_load = eval_env.unwrapped.buildings[i].net_electricity_consumption
-        battery_soc = eval_env.unwrapped.buildings[i].electrical_storage.soc
-        dhw_demand = eval_env.unwrapped.buildings[i].dhw_demand
-
-        if limit is not None:
-            indoor_temps = indoor_temps[:limit]
-            outdoor_temps = outdoor_temps[:limit]
-            setpoints = setpoints[:limit]
-            solar_generation = solar_generation[:limit]
-            battery_consumption = battery_consumption[:limit]
-            cooling_device_consumption = cooling_device_consumption[:limit]
-            dhw_device_consumption = dhw_device_consumption[:limit]
-            non_shiftable_load = non_shiftable_load[:limit]
-            net_load = net_load[:limit]
-            battery_soc = battery_soc[:limit]
-            dhw_demand = dhw_demand[:limit]
-            battery_actions[i] = battery_actions[i][:limit]
-            cooling_actions[i] = cooling_actions[i][:limit]
-            dhw_actions[i] = dhw_actions[i][:limit]
-
-        # battery_consumption
-        # Only consumption (no PV generation, no discharging)
-        battery_charge = np.maximum(0.0, battery_consumption)
-
-        plot_energy(
-            time=np.arange(len(indoor_temps)),
-            cooling_device_consumption=cooling_device_consumption,
-            dhw_device_consumption=dhw_device_consumption,
-            non_shiftable_load=non_shiftable_load,
-            battery_charge=battery_charge,
-            pv_generation=solar_generation,
-            battery_action=battery_actions[i],
-            battery_soc=battery_soc,
-            net_load=net_load,
-            index=i,
-            output_dir=output_dir,
-            episode=episode
-        )
-
-        plot_temperature(
-            time=np.arange(len(indoor_temps)),
-            indoor_temps=indoor_temps,
-            outdoor_temps=outdoor_temps,
-            setpoints=setpoints,
-            cooling_action=cooling_actions[i],
-            building_id=i,
-            output_dir=output_dir,
-            episode=episode
-        )
-
-        # plot_dhw(
-        #     time=np.arange(len(indoor_temps)),
-        #     dhw_demand=dhw_demand,
-        #     dhw_action=dhw_actions[i],
-        #     building_id=i
-        # )
+    path = os.path.join(os.getcwd(), f'temperature_profile_{suffix}.png')
+    plt.savefig(path, dpi=300, bbox_inches='tight')

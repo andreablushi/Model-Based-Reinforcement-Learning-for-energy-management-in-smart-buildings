@@ -2,7 +2,7 @@
 env: "citylearn"
 term_fn: "no_termination"
 
-num_steps: 22330
+num_steps: 11520
 trial_length: 719
 epoch_length: 1015
 num_sac_updates_per_step: 10

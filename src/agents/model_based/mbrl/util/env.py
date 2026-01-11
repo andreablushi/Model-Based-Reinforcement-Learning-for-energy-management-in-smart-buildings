@@ -55,6 +55,9 @@ class CityLearnSchema:
         else:
             # Include Building_1 by default
             self.set_active(key='buildings', items=['Building_1'])
+            self._schema['observations']['cooling_electricity_consumption']['active'] = True
+            self._schema['observations']['dhw_electricity_consumption']['active'] = True
+
 
     def save(self, dir: str, prefix: str='base'):
         with open(f'{dir}/{prefix}_schema.json', 'w') as f:
@@ -172,8 +175,14 @@ def _handle_learned_rewards_and_seed(
 
     if cfg.seed is not None:
         env.reset(seed=cfg.seed)
-        env.observation_space.seed(cfg.seed + 1)
-        env.action_space.seed(cfg.seed + 2)
+        if isinstance(env.action_space, list):
+            for action_space in env.action_space:
+                action_space.seed(cfg.seed + 2)
+            for observation_space in env.observation_space:
+                observation_space.seed(cfg.seed + 1)
+        else:
+            env.observation_space.seed(cfg.seed + 1)
+            env.action_space.seed(cfg.seed + 2)
 
     return env, reward_fn
 
@@ -225,6 +234,7 @@ def _legacy_make_env(
 
             # env = NormalizedSpaceWrapper(env)
             if not test_env:
+                print("HERE")
                 env = CityLearnWandbWrapper(env, online=True, verbose=True)
             else:
                 env = CityLearnEnv(
@@ -248,17 +258,13 @@ def _legacy_make_env(
             )
             reward_fn = SolarPenaltyAndComfortReward(env.schema)
             env.reward_function = reward_fn
-            if not test_env:
-                env = CityLearnWandbWrapper(env, online=True)
-            else:
-                env = CityLearnKPIWrapper(env)
             term_fn = mbrl.env.termination_fns.no_termination
             
         else:
             raise ValueError("Invalid environment string.")
-        env = gym.wrappers.TimeLimit(
-            env, max_episode_steps=cfg.overrides.get("trial_length", 1000)
-        )
+        # env = gym.wrappers.TimeLimit(
+        #     env, max_episode_steps=cfg.overrides.get("trial_length", 1000)
+        # )
 
     env, _ = _handle_learned_rewards_and_seed(cfg, env, reward_fn)
     return env, term_fn, reward_fn
@@ -348,9 +354,9 @@ class EnvHandler(ABC):
 
         env = hydra.utils.instantiate(env_cfg)
 
-        env = gym.wrappers.TimeLimit(
-            env, max_steps = cfg.overrides.get("trial_length", 1000)
-        )
+        # env = gym.wrappers.TimeLimit(
+        #     env, max_steps = cfg.overrides.get("trial_length", 1000)
+        # )
 
         term_fn, reward_fn = _get_term_and_reward_fn(cfg)
         env, reward_fn = _handle_learned_rewards_and_seed(cfg, env, reward_fn)
