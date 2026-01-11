@@ -1,4 +1,5 @@
 
+from typing import Dict
 import pandas as pd
 
 import matplotlib.pyplot as plt
@@ -7,51 +8,31 @@ import math
 
 from citylearn.citylearn import CityLearnEnv, EvaluationCondition
 
-def get_kpis(env: CityLearnEnv) -> pd.DataFrame:
-    """Returns evaluation KPIs.
+def get_kpis(env: CityLearnEnv) -> Dict[str, float]:
+    kpis = env.unwrapped.evaluate()
 
-    Electricity cost and carbon emissions KPIs are provided
-    at the building-level and average district-level. Average daily peak,
-    ramping and (1 - load factor) KPIs are provided at the district level.
-
-    Parameters
-    ----------
-    env: CityLearnEnv
-        CityLearn environment instance.
-
-    Returns
-    -------
-    kpis: pd.DataFrame
-        KPI table.
-    """
-
-    kpis = env.unwrapped.evaluate(
-        control_condition=EvaluationCondition.WITH_STORAGE_AND_PARTIAL_LOAD_AND_PV,
-        baseline_condition=EvaluationCondition.WITHOUT_STORAGE_AND_PARTIAL_LOAD_BUT_WITH_PV,
-        comfort_band=1.0,
-    )
-
-    # names of KPIs to retrieve from evaluate function
+    # KPIs to retrieve
     kpi_names = {
-        'cost_total': 'Cost',
-        'carbon_emissions_total': 'Emissions',
-        'daily_peak_average': 'Avg. daily peak',
-        'ramping_average': 'Ramping',
-        'monthly_one_minus_load_factor_average': '1 - load factor',
-        'discomfort_proportion': 'Discomfort'
+        'cost_total': 'Cost ($/kWh)',
+        'carbon_emissions_total': 'Emissions (kgC02e/kWh)',
+        'daily_peak_average': 'Avg. daily peak (kWh)',
+        'ramping_average': 'Ramping (kWh)',
+        'daily_one_minus_load_factor_average': '1 - load factor',
+        'discomfort_proportion': 'Discomfort (%)'
     }
+
+    # Filter KPIs
     kpis = kpis[
+        (kpis['level'] == 'district') &
         (kpis['cost_function'].isin(kpi_names))
     ].dropna()
     kpis['cost_function'] = kpis['cost_function'].map(lambda x: kpi_names[x])
 
-    # round up the values to 2 decimal places for readability
-    kpis['value'] = kpis['value'].round(2)
+    kpis_dict = {}
+    for _, kpi in kpis.iterrows():
+        kpis_dict[kpi['cost_function']] = kpi['value']
 
-    # rename the column that defines the KPIs
-    kpis = kpis.rename(columns={'cost_function': 'kpi'})
-
-    return kpis
+    return kpis_dict
 
 def plot_building_kpis(envs: dict[str, CityLearnEnv]) -> pd.DataFrame:
     """Plots electricity consumption, cost and carbon emissions

@@ -1,6 +1,7 @@
 
 
 from agents.model_based.mbrl.util.CityLearnWrappers import CityLearnKPIWrapper
+from agents.model_based.mbrl.util.env import CityLearnSchema
 from rewards.CityLearnReward import SolarPenaltyAndComfortReward
 from citylearn.citylearn import CityLearnEnv
 import matplotlib.pyplot as plt
