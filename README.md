@@ -6,17 +6,16 @@ This project contains a collection of Jupyter Notebooks and Python modules for t
 ---
 
 ## 📁 Project Structure
-
+```
 src/  
 ├── MACURASimulation.ipynb <- Run MACURA-based MBRL training/evaluation  ( as example for others) 
-
 ├── CHESCASimulation.ipynb <- Run CHESCA energy environment simulation  
 ├── agents/ <- CHESCA and MBRL algorithms code
 ├── wrappers/ <- CityLearn wrappers  
 ├── rewards/ <- Custom energy-based reward functions  
 ├── utils/ <- Helper code (mainly plotting)  
 └── old/ <- Old Jupyter Notebooks with previous test
-
+```
 ## 📦 Run on Google Colab
 
 > ✅ You can run this entire simulation on [Google Colab](https://colab.research.google.com/) with no local installation required. All the already present Jupyter Notebooks are set to be run on Google Colab.
